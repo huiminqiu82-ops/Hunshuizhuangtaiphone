@@ -139,12 +139,12 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
 
     useEffect(() => {
         if (!activeSession) {
-            setSessions(loadChatSessions());
+            setSessions([...loadChatSessions()]);
         }
     }, [activeSession]);
 
     useEffect(() => {
-        const refreshSessions = () => setSessions(loadChatSessions());
+        const refreshSessions = () => setSessions([...loadChatSessions()]);
         window.addEventListener("weixin-messages-updated", refreshSessions);
         window.addEventListener("chat-messages-updated", refreshSessions);
         window.addEventListener("chat-message-pushed", refreshSessions);
