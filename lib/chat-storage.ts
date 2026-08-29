@@ -1172,6 +1172,10 @@ export function pushChatMessage(msg: Omit<ChatMessage, "id" | "createdAt" | "sta
         target.lastMessageId = newMsg.id;
         if (preview) target.lastMessagePreview = preview;
         target.updatedAt = newMsg.createdAt;
+        // 如果是收到的消息（不是自己发的，也不是已读状态），就增加未读数
+        if (newMsg.role !== "user" && newMsg.status !== "read") {
+            target.unreadCount = (target.unreadCount || 0) + 1;
+        }
         dbPutSessions([target]);
     } else if (sessIdx === -1) {
         // 缓存未命中（极端情况）：回退全量路径，保证列表预览仍会刷新
@@ -1181,6 +1185,9 @@ export function pushChatMessage(msg: Omit<ChatMessage, "id" | "createdAt" | "sta
             sessions[idx2].lastMessageId = newMsg.id;
             if (preview) sessions[idx2].lastMessagePreview = preview;
             sessions[idx2].updatedAt = newMsg.createdAt;
+            if (newMsg.role !== "user" && newMsg.status !== "read") {
+                sessions[idx2].unreadCount = (sessions[idx2].unreadCount || 0) + 1;
+            }
             saveChatSessions(sessions);
         }
     }
@@ -1191,6 +1198,15 @@ export function pushChatMessage(msg: Omit<ChatMessage, "id" | "createdAt" | "sta
     emitChatPluginEvent("message.persisted", { message: newMsg });
 
     return newMsg;
+}
+
+export function markSessionRead(sessionId: string) {
+    const sessions = loadChatSessions();
+    const idx = sessions.findIndex(s => s.id === sessionId);
+    if (idx !== -1 && sessions[idx].unreadCount > 0) {
+        sessions[idx].unreadCount = 0;
+        saveChatSessions(sessions);
+    }
 }
 
 export function upsertImportedChatMessage(msg: ChatMessage): { message: ChatMessage; inserted: boolean } {
