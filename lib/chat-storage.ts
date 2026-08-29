@@ -39,6 +39,8 @@ export type ChatSession = {
     lastMessageId?: string;
     lastMessagePreview?: string;
     unreadCount: number;
+    /** 该会话「已读到」的最后一条可见消息 id；未读数由它之后的消息实时派生 */
+    lastReadMessageId?: string;
     updatedAt: string; // ISO date
     isPinned: boolean;
     backgroundImage?: string; // Add support for custom background
@@ -1167,44 +1169,21 @@ export function pushChatMessage(msg: Omit<ChatMessage, "id" | "createdAt" | "sta
     // saveChatSessions 触发全量会话预览重算（会话/消息多了以后会明显卡顿）。
     const preview = getChatMessagePreview(newMsg);
     const sessIdx = _sessionsCache.findIndex(s => s.id === msg.sessionId);
-    if (sessIdx !== -1) {
-        const target = { ..._sessionsCache[sessIdx] };
-        let sessionChanged = false;
-        
-        if (isSessionPreviewCandidate(newMsg)) {
-            target.lastMessageId = newMsg.id;
-            if (preview) target.lastMessagePreview = preview;
-            target.updatedAt = newMsg.createdAt;
-            sessionChanged = true;
-        }
-        
-        // 即使消息还是空的（流式刚开始），也算一条未读，排除系统与工具消息
-        if (newMsg.role !== "user" && newMsg.status !== "read" && newMsg.role !== "system" && newMsg.role !== "tool") {
-            target.unreadCount = (target.unreadCount || 0) + 1;
-            sessionChanged = true;
-        }
-        
-        if (sessionChanged) {
-            _sessionsCache[sessIdx] = target; // 替换引用，触发 React 刷新
-            dbPutSessions([target]);
-        }
+    if (sessIdx !== -1 && isSessionPreviewCandidate(newMsg)) {
+        const target = _sessionsCache[sessIdx];
+        target.lastMessageId = newMsg.id;
+        if (preview) target.lastMessagePreview = preview;
+        target.updatedAt = newMsg.createdAt;
+        dbPutSessions([target]);
     } else if (sessIdx === -1) {
         // 缓存未命中（极端情况）：回退全量路径，保证列表预览仍会刷新
         const sessions = loadChatSessions();
         const idx2 = sessions.findIndex(s => s.id === msg.sessionId);
-        if (idx2 !== -1) {
-            let sessionChanged = false;
-            if (isSessionPreviewCandidate(newMsg)) {
-                sessions[idx2].lastMessageId = newMsg.id;
-                if (preview) sessions[idx2].lastMessagePreview = preview;
-                sessions[idx2].updatedAt = newMsg.createdAt;
-                sessionChanged = true;
-            }
-            if (newMsg.role !== "user" && newMsg.status !== "read" && newMsg.role !== "system" && newMsg.role !== "tool") {
-                sessions[idx2].unreadCount = (sessions[idx2].unreadCount || 0) + 1;
-                sessionChanged = true;
-            }
-            if (sessionChanged) saveChatSessions(sessions);
+        if (idx2 !== -1 && isSessionPreviewCandidate(newMsg)) {
+            sessions[idx2].lastMessageId = newMsg.id;
+            if (preview) sessions[idx2].lastMessagePreview = preview;
+            sessions[idx2].updatedAt = newMsg.createdAt;
+            saveChatSessions(sessions);
         }
     }
 
@@ -1216,13 +1195,45 @@ export function pushChatMessage(msg: Omit<ChatMessage, "id" | "createdAt" | "sta
     return newMsg;
 }
 
+/** 标记会话为已读：记录当前最后一条可见消息为「已读到此」。 */
 export function markSessionRead(sessionId: string) {
     const sessions = loadChatSessions();
     const idx = sessions.findIndex(s => s.id === sessionId);
-    if (idx !== -1 && sessions[idx].unreadCount > 0) {
-        sessions[idx].unreadCount = 0;
-        saveChatSessions(sessions);
+    if (idx === -1) return;
+    const lastMsg = getLastVisibleSessionMessage(sessionId);
+    const nextReadId = lastMsg?.id;
+    if (sessions[idx].lastReadMessageId === nextReadId && (sessions[idx].unreadCount || 0) === 0) return;
+    sessions[idx].lastReadMessageId = nextReadId;
+    sessions[idx].unreadCount = 0;
+    saveChatSessions(sessions);
+}
+
+/**
+ * 计算会话未读数：数「已读位置」之后又出现的、非用户本人发出的可见消息。
+ * 派生自实际消息，不依赖易错的自增计数器——无论回复走哪条落库/重建路径都准。
+ */
+export function getSessionUnreadCount(session: ChatSession): number {
+    const messages = getSortedSessionMessages(session.id).filter(isSessionPreviewCandidate);
+    if (messages.length === 0) return 0;
+    // 已读位置的下一条起算；无已读记录或已读消息已不存在时，退回「最后一条用户消息之后」
+    let startIdx = 0;
+    const readIdx = session.lastReadMessageId
+        ? messages.findIndex(m => m.id === session.lastReadMessageId)
+        : -1;
+    if (readIdx !== -1) {
+        startIdx = readIdx + 1;
+    } else {
+        for (let i = messages.length - 1; i >= 0; i -= 1) {
+            if (messages[i].role === "user") { startIdx = i + 1; break; }
+        }
     }
+    let count = 0;
+    for (let i = startIdx; i < messages.length; i += 1) {
+        const m = messages[i];
+        if (m.role === "user") continue; // 自己发的不算
+        count += 1;
+    }
+    return count;
 }
 
 export function upsertImportedChatMessage(msg: ChatMessage): { message: ChatMessage; inserted: boolean } {

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
 import { ChevronLeft } from "lucide-react";
-import { loadChatSessions, loadChatContacts, ChatSession, createOrGetSession, createGroupSession, pushChatMessage, addChatContact, loadChatMessages, getLastVisibleSessionMessage, getChatMessagePreview, markSessionRead } from "@/lib/chat-storage";
+import { loadChatSessions, loadChatContacts, ChatSession, createOrGetSession, createGroupSession, pushChatMessage, addChatContact, loadChatMessages, getLastVisibleSessionMessage, getChatMessagePreview, markSessionRead, getSessionUnreadCount } from "@/lib/chat-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import { Character } from "@/lib/character-types";
 import { resolveUserIdentity } from "@/lib/settings-storage";
@@ -148,10 +148,14 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
         window.addEventListener("weixin-messages-updated", refreshSessions);
         window.addEventListener("chat-messages-updated", refreshSessions);
         window.addEventListener("chat-message-pushed", refreshSessions);
+        window.addEventListener("chat-messages-deleted", refreshSessions);
+        window.addEventListener("chat-response-batch-replaced", refreshSessions);
         return () => {
             window.removeEventListener("weixin-messages-updated", refreshSessions);
             window.removeEventListener("chat-messages-updated", refreshSessions);
             window.removeEventListener("chat-message-pushed", refreshSessions);
+            window.removeEventListener("chat-messages-deleted", refreshSessions);
+            window.removeEventListener("chat-response-batch-replaced", refreshSessions);
         };
     }, []);
 
@@ -820,11 +824,14 @@ function SessionItem({ session, onSelect, isPinned }: { session: ChatSession, on
                     <span className="ts-13 text-[var(--c-text)] opacity-80 truncate font-normal">
                         {preview || getLastNonEmptyPreview(session.id)}
                     </span>
-                    {session.unreadCount > 0 && (
-                        <div className="minimal-unread-count shrink-0">
-                            {session.unreadCount > 99 ? '99+' : session.unreadCount}
-                        </div>
-                    )}
+                    {(() => {
+                        const unread = getSessionUnreadCount(session);
+                        return unread > 0 ? (
+                            <div className="minimal-unread-count shrink-0">
+                                {unread > 99 ? '99+' : unread}
+                            </div>
+                        ) : null;
+                    })()}
                 </div>
             </div>
         </div>
