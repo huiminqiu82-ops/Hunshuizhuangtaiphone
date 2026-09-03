@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useSyncExternalStore } from "react";
 import { ChevronLeft } from "lucide-react";
-import { loadChatSessions, loadChatContacts, ChatSession, createOrGetSession, createGroupSession, pushChatMessage, addChatContact, loadChatMessages, getLastVisibleSessionMessage, getChatMessagePreview, markSessionRead, getSessionUnreadCount } from "@/lib/chat-storage";
+import { loadChatSessions, loadChatContacts, ChatSession, createOrGetSession, createGroupSession, pushChatMessage, addChatContact, loadChatMessages, getLastVisibleSessionMessage, getChatMessagePreview } from "@/lib/chat-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import { Character } from "@/lib/character-types";
 import { resolveUserIdentity } from "@/lib/settings-storage";
@@ -139,23 +139,17 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
 
     useEffect(() => {
         if (!activeSession) {
-            setSessions([...loadChatSessions()]);
+            setSessions(loadChatSessions());
         }
     }, [activeSession]);
 
     useEffect(() => {
-        const refreshSessions = () => setSessions([...loadChatSessions()]);
+        const refreshSessions = () => setSessions(loadChatSessions());
         window.addEventListener("weixin-messages-updated", refreshSessions);
         window.addEventListener("chat-messages-updated", refreshSessions);
-        window.addEventListener("chat-message-pushed", refreshSessions);
-        window.addEventListener("chat-messages-deleted", refreshSessions);
-        window.addEventListener("chat-response-batch-replaced", refreshSessions);
         return () => {
             window.removeEventListener("weixin-messages-updated", refreshSessions);
             window.removeEventListener("chat-messages-updated", refreshSessions);
-            window.removeEventListener("chat-message-pushed", refreshSessions);
-            window.removeEventListener("chat-messages-deleted", refreshSessions);
-            window.removeEventListener("chat-response-batch-replaced", refreshSessions);
         };
     }, []);
 
@@ -311,10 +305,7 @@ export function ChatMessageList({ onCloseApp, activeSession, onSelectSession, on
                             })
                             .map(s => (
                                 <div key={s.id}>
-                                    <SessionItem session={s} onSelect={() => {
-                                        markSessionRead(s.id);
-                                        onSelectSession(s);
-                                    }} isPinned={!!s.isPinned} />
+                                    <SessionItem session={s} onSelect={() => onSelectSession(s)} isPinned={!!s.isPinned} />
                                 </div>
                             ));
                             if (!showMascot && regularItems.length === 0) {
@@ -824,14 +815,6 @@ function SessionItem({ session, onSelect, isPinned }: { session: ChatSession, on
                     <span className="ts-13 text-[var(--c-text)] opacity-80 truncate font-normal">
                         {preview || getLastNonEmptyPreview(session.id)}
                     </span>
-                    {(() => {
-                        const unread = getSessionUnreadCount(session);
-                        return unread > 0 ? (
-                            <div className="minimal-unread-count shrink-0">
-                                {unread > 99 ? '99+' : unread}
-                            </div>
-                        ) : null;
-                    })()}
                 </div>
             </div>
         </div>

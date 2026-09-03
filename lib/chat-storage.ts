@@ -39,8 +39,6 @@ export type ChatSession = {
     lastMessageId?: string;
     lastMessagePreview?: string;
     unreadCount: number;
-    /** 该会话「已读到」的最后一条可见消息 id；未读数由它之后的消息实时派生 */
-    lastReadMessageId?: string;
     updatedAt: string; // ISO date
     isPinned: boolean;
     backgroundImage?: string; // Add support for custom background
@@ -1193,47 +1191,6 @@ export function pushChatMessage(msg: Omit<ChatMessage, "id" | "createdAt" | "sta
     emitChatPluginEvent("message.persisted", { message: newMsg });
 
     return newMsg;
-}
-
-/** 标记会话为已读：记录当前最后一条可见消息为「已读到此」。 */
-export function markSessionRead(sessionId: string) {
-    const sessions = loadChatSessions();
-    const idx = sessions.findIndex(s => s.id === sessionId);
-    if (idx === -1) return;
-    const lastMsg = getLastVisibleSessionMessage(sessionId);
-    const nextReadId = lastMsg?.id;
-    if (sessions[idx].lastReadMessageId === nextReadId && (sessions[idx].unreadCount || 0) === 0) return;
-    sessions[idx].lastReadMessageId = nextReadId;
-    sessions[idx].unreadCount = 0;
-    saveChatSessions(sessions);
-}
-
-/**
- * 计算会话未读数：数「已读位置」之后又出现的、非用户本人发出的可见消息。
- * 派生自实际消息，不依赖易错的自增计数器——无论回复走哪条落库/重建路径都准。
- */
-export function getSessionUnreadCount(session: ChatSession): number {
-    const messages = getSortedSessionMessages(session.id).filter(isSessionPreviewCandidate);
-    if (messages.length === 0) return 0;
-    // 已读位置的下一条起算；无已读记录或已读消息已不存在时，退回「最后一条用户消息之后」
-    let startIdx = 0;
-    const readIdx = session.lastReadMessageId
-        ? messages.findIndex(m => m.id === session.lastReadMessageId)
-        : -1;
-    if (readIdx !== -1) {
-        startIdx = readIdx + 1;
-    } else {
-        for (let i = messages.length - 1; i >= 0; i -= 1) {
-            if (messages[i].role === "user") { startIdx = i + 1; break; }
-        }
-    }
-    let count = 0;
-    for (let i = startIdx; i < messages.length; i += 1) {
-        const m = messages[i];
-        if (m.role === "user") continue; // 自己发的不算
-        count += 1;
-    }
-    return count;
 }
 
 export function upsertImportedChatMessage(msg: ChatMessage): { message: ChatMessage; inserted: boolean } {
